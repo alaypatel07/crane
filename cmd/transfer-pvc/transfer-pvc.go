@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -154,11 +155,27 @@ func (t *TransferPVCOptions) getClientFromContext(ctx string) (client.Client, er
 	return client.New(restConfig, client.Options{Scheme: scheme.Scheme})
 }
 
-func (t *TransferPVCOptions) getRestConfigFromContext(ctx string) (*rest.Config, error) {
-	c := ctx
-	t.configFlags.Context = &c
+func (t *TransferPVCOptions) getRestConfigFromContext(desiredCtx string) (*rest.Config, error) {
+	rawConfig, err := t.configFlags.ToRawKubeConfigLoader().RawConfig()
+	if err != nil {
+		return nil, err
+	}
 
-	return t.configFlags.ToRESTConfig()
+	var connectionConfig *clientcmdapi.Context
+	for ctxName, ctx := range rawConfig.Contexts {
+		if ctxName == desiredCtx {
+			connectionConfig = ctx
+			break
+		}
+	}
+	if connectionConfig == nil {
+		return nil, fmt.Errorf("error finding the desired context: %s in current kubeconfig", desiredCtx)
+	}
+
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{
+			Context: *connectionConfig,
+		}).ClientConfig()
 }
 
 func (t *TransferPVCOptions) run() error {
